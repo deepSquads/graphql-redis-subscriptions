@@ -1,5 +1,5 @@
 {
-  "name": "graphql-redis-subscriptions",
+  "name": "@deepsquads/graphql-redis-subscriptions",
   "version": "2.6.1",
   "description": "A graphql-subscriptions PubSub Engine using redis",
   "main": "dist/index.js",
