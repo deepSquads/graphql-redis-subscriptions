@@ -1,5 +1,6 @@
 # graphql-redis-subscriptions
 
+[![Dependabot badge](https://flat.badgen.net/dependabot/davidyaha/graphql-redis-subscriptions?icon=dependabot)](https://dependabot.com/)
 [![Build Status](https://travis-ci.org/davidyaha/graphql-redis-subscriptions.svg?branch=master)](https://travis-ci.org/davidyaha/graphql-redis-subscriptions)
 
 This package implements the PubSubEngine Interface from the [graphql-subscriptions](https://github.com/apollographql/graphql-subscriptions) package and also the new AsyncIterator interface. 
@@ -108,39 +109,7 @@ export const resolvers = {
 }
 ```
 
-## Configuring RedisPubSub
-
-`RedisPubSub` constructor can be passed a configuration object to enable some advanced features. 
-
-```ts
-export interface PubSubRedisOptions {
-  connection?: RedisOptions | string;
-  triggerTransform?: TriggerTransform;
-  connectionListener?: (err?: Error) => void;
-  publisher?: RedisClient;
-  subscriber?: RedisClient;
-  reviver?: Reviver;
-  serializer?: Serializer;
-  deserializer?: Deserializer;
-  messageEventName?: string;
-  pmessageEventName?: string;
-}
-```
-
-| option | type | default | description |
-| ------ | ---- | ------- | ----------- |
-| `connection` | [`object \| string`](https://github.com/luin/ioredis#connect-to-redis) | `undefined` | the connection option is passed as is to the `ioredis` constructor to create redis subscriber and publisher instances. for greater controll, use `publisher` and `subscriber` options. |
-| `triggerTransform` | `function` | (trigger) => trigger | [deprecated](#using-trigger-transform-deprecated) |
-| `connectionListener` | `function` | `undefined` | pass in connection listener to log errors or make sure connection to redis instance was created successfully. |
-| `publisher` | `function` | `undefined` | must be passed along side `subscriber`. see [#creating-a-redis-client](#creating-a-redis-client) |
-| `subscriber` | `function` | `undefined` | must be passed along side `publisher`. see [#creating-a-redis-client](#creating-a-redis-client) |
-| `reviver` | `function` | `undefined` | see [#using-a-custom-reviver](#using-a-custom-reviver) |
-| `serializer` | `function` | `undefined` | see [#using-a-custom-serializerdeserializer](#using-a-custom-serializerdeserializer) |
-| `deserializer` | `function` | `undefined` | see [#using-a-custom-serializerdeserializer](#using-a-custom-serializerdeserializer) |
-| `messageEventName` | `string` | `undefined` | see [#receiving-messages-as-buffers](#receiving-messages-as-buffers) |
-| `pmessageEventName` | `string` | `undefined` | see [#receiving-messages-as-buffers](#receiving-messages-as-buffers) |
-
-## Creating a Redis Client
+## Creating the Redis Client
 
 The basic usage is great for development and you will be able to connect to a Redis server running on your system seamlessly. For production usage, it is recommended to pass a redis client (like ioredis) to the RedisPubSub constructor. This way you can control all the options of your redis connection, for example the connection retry strategy.
 
@@ -164,7 +133,7 @@ const pubsub = new RedisPubSub({
 });
 ```
 
-### Receiving messages as Buffers
+**Receiving messages as Buffers**
 
 Some Redis use cases require receiving binary-safe data back from redis (in a Buffer). To accomplish this, override the event names for receiving messages and pmessages.  Different redis clients use different names, for example:
 
@@ -202,28 +171,6 @@ const pubsub = new RedisPubSub({
 
 
 You can learn more on the `ioredis` package [here](https://github.com/luin/ioredis).
-
-## Using a custom serializer/deserializer
-
-By default, Javascript objects are (de)serialized using the `JSON.stringify` and `JSON.parse` methods.
-You may pass your own serializer and/or deserializer function(s) as part of the options.
-
-The `deserializer` will be called with an extra context object containing `pattern` (if available) and `channel` properties, allowing you to access this information when subscribing to a pattern.
-
-```javascript
-import { RedisPubSub } from 'graphql-redis-subscriptions';
-import { someSerializer, someDeserializer } from 'some-serializer-library';
-
-const serialize = (source) => {
-  return someSerializer(source);
-};
-
-const deserialize = (sourceOrBuffer, { channel, pattern }) => {
-  return someDeserializer(sourceOrBuffer, channel, pattern);
-};
-
-const pubSub = new RedisPubSub({ ..., serializer: serialize, deserializer: deserialize });
-```
 
 ## Using a custom reviver
 

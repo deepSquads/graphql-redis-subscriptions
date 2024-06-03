@@ -1,13 +1,14 @@
-import {Cluster, Redis, RedisOptions} from 'ioredis';
-import {PubSubEngine} from 'graphql-subscriptions';
-import {PubSubAsyncIterator} from './pubsub-async-iterator';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { Cluster, Redis, RedisOptions } from 'ioredis';
+import { PubSubAsyncIterator } from './pubsub-async-iterator';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { PubSubEngine } from 'graphql-subscriptions';
 
 type RedisClient = Redis | Cluster;
 type OnMessage<T> = (message: T) => void;
-type DeserializerContext = { channel: string, pattern?: string };
 
 export interface PubSubRedisOptions {
-  connection?: RedisOptions | string;
+  connection?: RedisOptions;
   triggerTransform?: TriggerTransform;
   connectionListener?: (err: Error) => void;
   publisher?: RedisClient;
@@ -20,7 +21,6 @@ export interface PubSubRedisOptions {
 }
 
 export class RedisPubSub implements PubSubEngine {
-
   constructor(options: PubSubRedisOptions = {}) {
     const {
       triggerTransform,
@@ -35,7 +35,8 @@ export class RedisPubSub implements PubSubEngine {
       pmessageEventName = 'pmessage',
     } = options;
 
-    this.triggerTransform = triggerTransform || (trigger => trigger as string);
+    this.triggerTransform =
+      triggerTransform || ((trigger) => trigger as string);
 
     if (reviver && deserializer) {
       throw new Error("Reviver and deserializer can't be used together");
@@ -51,17 +52,17 @@ export class RedisPubSub implements PubSubEngine {
     } else {
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const IORedis = require('ioredis');
-        this.redisPublisher = new IORedis(connection);
-        this.redisSubscriber = new IORedis(connection);
+        const Redis = require('ioredis');
+        this.redisPublisher = new Redis(connection);
+        this.redisSubscriber = new Redis(connection);
 
         if (connectionListener) {
           this.redisPublisher
-              .on('connect', connectionListener)
-              .on('error', connectionListener);
+            .on('connect', connectionListener)
+            .on('error', connectionListener);
           this.redisSubscriber
-              .on('connect', connectionListener)
-              .on('error', connectionListener);
+            .on('connect', connectionListener)
+            .on('error', connectionListener);
         } else {
           this.redisPublisher.on('error', console.error);
           this.redisSubscriber.on('error', console.error);
@@ -76,22 +77,21 @@ export class RedisPubSub implements PubSubEngine {
     // handle messages received via psubscribe and subscribe
     this.redisSubscriber.on(pmessageEventName, this.onMessage.bind(this));
     // partially applied function passes undefined for pattern arg since 'message' event won't provide it:
-    this.redisSubscriber.on(messageEventName, this.onMessage.bind(this, undefined));
+    this.redisSubscriber.on(
+      messageEventName,
+      this.onMessage.bind(this, undefined),
+    );
 
     this.subscriptionMap = {};
-    this.subsRefsMap = new Map<string, Set<number>>();
-    this.subsPendingRefsMap = new Map<string, { refs: number[], pending: Promise<number> }>();
+    this.subsRefsMap = {};
     this.currentSubscriptionId = 0;
   }
 
   public async publish<T>(trigger: string, payload: T): Promise<void> {
-    if(this.serializer) {
-      await this.redisPublisher.publish(trigger, this.serializer(payload));
-    } else if (payload instanceof Buffer){
-      await this.redisPublisher.publish(trigger, payload);
-    } else {
-      await this.redisPublisher.publish(trigger, JSON.stringify(payload));
-    }
+    await this.redisPublisher.publish(
+      trigger,
+      this.serializer ? this.serializer(payload) : JSON.stringify(payload),
+    );
   }
 
   public subscribe<T = any>(
@@ -99,76 +99,61 @@ export class RedisPubSub implements PubSubEngine {
     onMessage: OnMessage<T>,
     options: unknown = {},
   ): Promise<number> {
-
     const triggerName: string = this.triggerTransform(trigger, options);
     const id = this.currentSubscriptionId++;
     this.subscriptionMap[id] = [triggerName, onMessage];
 
-    if (!this.subsRefsMap.has(triggerName)) {
-      this.subsRefsMap.set(triggerName, new Set());
-    }
-
-    const refs = this.subsRefsMap.get(triggerName);
-
-    const pendingRefs = this.subsPendingRefsMap.get(triggerName)
-    if (pendingRefs != null) {
-      // A pending remote subscribe call is currently in flight, piggyback on it
-      pendingRefs.refs.push(id)
-      return pendingRefs.pending.then(() => id)
-    } else if (refs.size > 0) {
-      // Already actively subscribed to redis
-      refs.add(id);
+    const refs = this.subsRefsMap[triggerName];
+    if (refs && refs.length > 0) {
+      this.subsRefsMap[triggerName] = [...refs, id];
       return Promise.resolve(id);
     } else {
-      // New subscription.
-      // Keep a pending state until the remote subscribe call is completed
-      const pending = new Deferred()
-      const subsPendingRefsMap = this.subsPendingRefsMap
-      subsPendingRefsMap.set(triggerName, { refs: [], pending });
+      return new Promise<number>((resolve, reject) => {
+        const subscribeFn = options['pattern']
+          ? this.redisSubscriber.psubscribe
+          : this.redisSubscriber.subscribe;
 
-      const sub = new Promise<number>((resolve, reject) => {
-        const subscribeFn = options['pattern'] ? this.redisSubscriber.psubscribe : this.redisSubscriber.subscribe;
-
-        subscribeFn.call(this.redisSubscriber, triggerName, err => {
+        subscribeFn.call(this.redisSubscriber, triggerName, (err) => {
           if (err) {
-            subsPendingRefsMap.delete(triggerName)
             reject(err);
           } else {
-            // Add ids of subscribe calls initiated when waiting for the remote call response
-            const pendingRefs = subsPendingRefsMap.get(triggerName)
-            pendingRefs.refs.forEach((id) => refs.add(id))
-            subsPendingRefsMap.delete(triggerName)
-
-            refs.add(id);
+            this.subsRefsMap[triggerName] = [
+              ...(this.subsRefsMap[triggerName] || []),
+              id,
+            ];
             resolve(id);
           }
         });
       });
-      // Ensure waiting subscribe will complete
-      sub.then(pending.resolve).catch(pending.reject)
-      return sub;
     }
   }
 
   public unsubscribe(subId: number): void {
     const [triggerName = null] = this.subscriptionMap[subId] || [];
-    const refs = this.subsRefsMap.get(triggerName);
+    const refs = this.subsRefsMap[triggerName];
 
     if (!refs) throw new Error(`There is no subscription of id "${subId}"`);
 
-    if (refs.size === 1) {
+    if (refs.length === 1) {
       // unsubscribe from specific channel and pattern match
       this.redisSubscriber.unsubscribe(triggerName);
       this.redisSubscriber.punsubscribe(triggerName);
 
-      this.subsRefsMap.delete(triggerName);
+      delete this.subsRefsMap[triggerName];
     } else {
-      refs.delete(subId);
+      const index = refs.indexOf(subId);
+      this.subsRefsMap[triggerName] =
+        index === -1
+          ? refs
+          : [...refs.slice(0, index), ...refs.slice(index + 1)];
     }
     delete this.subscriptionMap[subId];
   }
 
-  public asyncIterator<T>(triggers: string | string[], options?: unknown): AsyncIterator<T> {
+  public asyncIterator<T>(
+    triggers: string | string[],
+    options?: unknown,
+  ): AsyncIterator<T> {
     return new PubSubAsyncIterator<T>(this, triggers, options);
   }
 
@@ -194,49 +179,31 @@ export class RedisPubSub implements PubSubEngine {
   private readonly redisPublisher: RedisClient;
   private readonly reviver: Reviver;
 
-  private readonly subscriptionMap: { [subId: number]: [string, OnMessage<unknown>] };
-  private readonly subsRefsMap: Map<string, Set<number>>;
-  private readonly subsPendingRefsMap: Map<string, { refs: number[], pending: Promise<number> }>;
+  private readonly subscriptionMap: {
+    [subId: number]: [string, OnMessage<unknown>];
+  };
+  private readonly subsRefsMap: { [trigger: string]: Array<number> };
   private currentSubscriptionId: number;
 
-  private onMessage(pattern: string, channel: string | Buffer, message: string | Buffer) {
-    if(typeof channel === 'object') channel = channel.toString('utf8');
-
-    const subscribers = this.subsRefsMap.get(pattern || channel);
+  private onMessage(pattern: string, channel: string, message: string) {
+    const subscribers = this.subsRefsMap[pattern || channel];
 
     // Don't work for nothing..
-    if (!subscribers?.size) return;
+    if (!subscribers || !subscribers.length) return;
 
     let parsedMessage;
     try {
-      if(this.deserializer){
-        parsedMessage = this.deserializer(Buffer.from(message), { pattern, channel })
-      } else if(typeof message === 'string'){
-        parsedMessage = JSON.parse(message, this.reviver);
-      } else {
-        parsedMessage = message;
-      }
+      parsedMessage = this.deserializer
+        ? this.deserializer(message)
+        : JSON.parse(message, this.reviver);
     } catch (e) {
       parsedMessage = message;
     }
 
-    subscribers.forEach(subId => {
+    for (const subId of subscribers) {
       const [, listener] = this.subscriptionMap[subId];
       listener(parsedMessage);
-    });
-  }
-}
-
-// Unexported deferrable promise used to complete waiting subscribe calls
-function Deferred() {
-  const p = this.promise = new Promise((resolve, reject) => {
-    this.resolve = resolve;
-    this.reject = reject;
-  });
-  this.then = p.then.bind(p);
-  this.catch = p.catch.bind(p);
-  if (p.finally) {
-    this.finally = p.finally.bind(p);
+    }
   }
 }
 
@@ -248,4 +215,4 @@ export type TriggerTransform = (
 ) => string;
 export type Reviver = (key: any, value: any) => any;
 export type Serializer = (source: any) => string;
-export type Deserializer = (source: string | Buffer, context: DeserializerContext) => any;
+export type Deserializer = (source: string | Buffer) => any;
