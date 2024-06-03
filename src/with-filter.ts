@@ -1,16 +1,35 @@
-export type FilterFn = (rootValue?: any, args?: any, context?: any, info?: any) => boolean;
+import { $$asyncIterator } from 'iterall';
 
-export const withFilter = (asyncIteratorFn: () => AsyncIterableIterator<any>, filterFn: FilterFn) => {
-  return (rootValue: any, args: any, context: any, info: any): AsyncIterator<any> => {
+export type FilterFn = (
+  rootValue?: any,
+  args?: any,
+  context?: any,
+  info?: any,
+) => boolean;
+
+export const withFilter = (
+  asyncIteratorFn: () => AsyncIterator<any>,
+  filterFn: FilterFn,
+) => {
+  return (
+    rootValue: any,
+    args: any,
+    context: any,
+    info: any,
+  ): AsyncIterator<any> => {
     const asyncIterator = asyncIteratorFn();
 
     const getNextPromise = () => {
       return asyncIterator
         .next()
-        .then(payload => Promise.all([
-          payload,
-          Promise.resolve(filterFn(payload.value, args, context, info)).catch(() => false),
-        ]))
+        .then((payload) =>
+          Promise.all([
+            payload,
+            Promise.resolve(filterFn(payload.value, args, context, info)).catch(
+              () => false,
+            ),
+          ]),
+        )
         .then(([payload, filterResult]) => {
           if (filterResult === true) {
             return payload;
@@ -31,7 +50,7 @@ export const withFilter = (asyncIteratorFn: () => AsyncIterableIterator<any>, fi
       throw(error) {
         return asyncIterator.throw(error);
       },
-      [Symbol.asyncIterator]() {
+      [$$asyncIterator]() {
         return this;
       },
     } as any;

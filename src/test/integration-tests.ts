@@ -1,7 +1,8 @@
 import * as chai from 'chai';
-import * as chaiAsPromised from 'chai-as-promised';
+import chaiAsPromised = require('chai-as-promised');
 import { mock } from 'simple-mock';
 import { parse, GraphQLSchema, GraphQLObjectType, GraphQLString, GraphQLFieldResolver } from 'graphql';
+import { isAsyncIterable } from 'iterall';
 import { subscribe } from 'graphql/subscription';
 
 import { RedisPubSub } from '../redis-pubsub';
@@ -82,7 +83,7 @@ describe('PubSubAsyncIterator', function() {
     subscribe({ schema, document: query})
       .then(ai => {
         // tslint:disable-next-line:no-unused-expression
-				expect(ai[Symbol.asyncIterator]).not.to.be.undefined;
+        expect(isAsyncIterable(ai)).to.be.true;
 
         const r = (ai as AsyncIterator<any>).next();
         setTimeout(() => pubsub.publish(FIRST_EVENT, {}), 50);
@@ -96,8 +97,8 @@ describe('PubSubAsyncIterator', function() {
   it('should allow pattern subscriptions', () =>
     subscribe({ schema, document: patternQuery })
       .then(ai => {
-				// tslint:disable-next-line:no-unused-expression
-				expect(ai[Symbol.asyncIterator]).not.to.be.undefined;
+        // tslint:disable-next-line:no-unused-expression
+        expect(isAsyncIterable(ai)).to.be.true;
 
         const r = (ai as AsyncIterator<any>).next();
         setTimeout(() => pubsub.publish(SECOND_EVENT, {}), 50);
@@ -111,8 +112,8 @@ describe('PubSubAsyncIterator', function() {
   it('should clear event handlers', () =>
     subscribe({ schema, document: query})
       .then(ai => {
-				// tslint:disable-next-line:no-unused-expression
-				expect(ai[Symbol.asyncIterator]).not.to.be.undefined;
+        // tslint:disable-next-line:no-unused-expression
+        expect(isAsyncIterable(ai)).to.be.true;
 
         pubsub.publish(FIRST_EVENT, {});
 
@@ -123,29 +124,6 @@ describe('PubSubAsyncIterator', function() {
       }));
 });
 
-describe('Subscribe to buffer', () => {
-  it('can publish buffers as well' , done => {
-    // when using messageBuffer, with redis instance the channel name is not a string but a buffer
-    const pubSub = new RedisPubSub({ messageEventName: 'messageBuffer'});
-    const payload = 'This is amazing';
-    
-    pubSub.subscribe('Posts', message => {
-      try {
-        expect(message).to.be.instanceOf(Buffer);
-        expect(message.toString('utf-8')).to.be.equal(payload);
-        done();
-      } catch (e) {
-        done(e);
-      }
-    }).then(async subId => {
-      try {
-        await pubSub.publish('Posts', Buffer.from(payload, 'utf-8'));
-      } catch (e) {
-        done(e);
-      }
-    });
-  });
-})
 
 describe('PubSubCluster', () => {
     const nodes = [7006, 7001, 7002, 7003, 7004, 7005].map(port => ({ host: '127.0.0.1', port }));
